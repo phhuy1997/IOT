@@ -2,6 +2,7 @@
 #include "WiFi.h"
 
 #include "SpeakerFeature.h"
+#include "Voice.h"
 
 // Wifi
 const char *ssid = "FPT-Telecom-Huy";
@@ -39,6 +40,9 @@ void setup()
   initSpeaker();
   digitalWrite(LED_PIN, LOW);
 
+  // Wait for wake word once at startup
+  Serial.println("\n[System] Waiting for wake word...");
+  initMicro(); // Initialize microphone and audio classifier machine learning
   playSpeaker("Xin chào, tôi là robot Wall Lee đây!", "vi");
   Serial.println("Wake word detected! Listening for command...");
   while (speakerIsPlaying())
@@ -50,79 +54,57 @@ void setup()
 
 void loop()
 {
-  // 2. Check for Serial input without "blocking" the rest of the code
+  // 3. Via method Waiting for wake word above
   speakerLoop();
-  if (Serial.available())
+  while (speakerIsPlaying())
+  { // wait until greeting finishes
+    speakerLoop();
+    delay(10);
+  }
+  playSpeaker("Iva?", "en");
+  while (speakerIsPlaying())
+  { // wait until greeting finishes
+    speakerLoop();
+    delay(10);
+  }
+  String text = recordingMicro();
+  playSpeaker("Hmmm", "en");
+  while (speakerIsPlaying())
+  { // wait until greeting finishes
+    speakerLoop();
+    delay(10);
+  }
+  text.trim();
+  text.toLowerCase();
+  Serial.print("User asked: ");
+  Serial.println(text);
+  if (text.length() > 0)
   {
-    String res = Serial.readStringUntil('\n'); // Cleaner way to read input
-    res.trim();                                // Remove whitespace/newlines
-
-    if (res.length() > 0)
+    // Get the AI Answer
+    if (text.indexOf("tạm biệt") >= 0)
     {
-      Serial.print("User asked: ");
-      Serial.println(res);
+      Serial.println("Shutting down...");
+      playSpeaker("Tạm biệt! Hẹn gặp lại! Hãy gọi lại tôi khi cần nhé!", "vi");
+      while (speakerIsPlaying())
+      {
+        speakerLoop();
+        delay(10);
+      }
+      ESP.restart(); // or put ESP32 into deep sleep
+    }
 
-      // Get the AI Answer
-      String answer = askAIModel(res);
-      Serial.print("AI Answer: ");
-      Serial.println(answer);
-
-      // Start the speech
-      playSpeaker(answer.c_str());
+    // Otherwise, process AI command
+    String answer = askAIModel(text);
+    Serial.print("AI Answer: ");
+    Serial.println(answer);
+    // Start the speech
+    Serial.flush(); // Wait until all Serial prints finish
+    delay(50);      // give DAC/I2S time to prepare
+    playSpeaker(answer.c_str(), "vi");
+    while (speakerIsPlaying())
+    {                // wait until playback finishes
+      speakerLoop(); // keep processing speaker buffer
+      delay(10);
     }
   }
-
-  // // 3. Waiting for wake word
-  // speakerLoop();
-  // while (speakerIsPlaying())
-  // { // wait until greeting finishes
-  //   speakerLoop();
-  //   delay(10);
-  // }
-  // playSpeaker("Iva?", "en");
-  // while (speakerIsPlaying())
-  // { // wait until greeting finishes
-  //   speakerLoop();
-  //   delay(10);
-  // }
-  // String text = recordingMicro();
-  // playSpeaker("Hmmm", "en");
-  // while (speakerIsPlaying())
-  // { // wait until greeting finishes
-  //   speakerLoop();
-  //   delay(10);
-  // }
-  // text.trim();
-  // text.toLowerCase();
-  // Serial.print("User asked: ");
-  // Serial.println(text);
-  // if (text.length() > 0)
-  // {
-  //   // Get the AI Answer
-  //   if (text.indexOf("tạm biệt") >= 0)
-  //   {
-  //     Serial.println("Shutting down...");
-  //     playSpeaker("Tạm biệt! Hẹn gặp lại! Hãy gọi lại tôi khi cần nhé!", "vi");
-  //     while (speakerIsPlaying())
-  //     {
-  //       speakerLoop();
-  //       delay(10);
-  //     }
-  //     ESP.restart(); // or put ESP32 into deep sleep
-  //   }
-
-  //   // Otherwise, process AI command
-  //   String answer = askAIModel(text);
-  //   Serial.print("AI Answer: ");
-  //   Serial.println(answer);
-  //   // Start the speech
-  //   Serial.flush(); // Wait until all Serial prints finish
-  //   delay(50);      // give DAC/I2S time to prepare
-  //   playSpeaker(answer.c_str(), "vi");
-  //   while (speakerIsPlaying())
-  //   {                // wait until playback finishes
-  //     speakerLoop(); // keep processing speaker buffer
-  //     delay(10);
-  //   }
-  // }
 }
