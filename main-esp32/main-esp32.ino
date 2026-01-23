@@ -3,6 +3,8 @@
 
 #include "SpeakerFeature.h"
 #include "Voice.h"
+#include "WiFiHelper.h"
+#include "FirebaseHelper.h"
 #include <FirebaseESP32.h>
 
 #define LED_PIN 14
@@ -23,21 +25,6 @@ FirebaseConfig firebaseConfig;
 const char *ssid = "FPT-Telecom-Huy";
 const char *password = "7210lecop";
 
-// ===== WiFi Connection =====
-void connectWiFi()
-{
-  Serial.println("[WiFi] Connecting...");
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(1000);
-    Serial.print(".");
-  }
-  Serial.println("connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-}
-
 void setup()
 {
   Serial.begin(115200);
@@ -47,24 +34,22 @@ void setup()
   digitalWrite(LED_PIN, HIGH); // Ensure the light is off initially
 
   // First prerequisites
-  connectWiFi();
+  connectWiFi(ssid, password);
 
   // Firebase setup
-  // Assign the Firebase Realtime Database URL and secret
-  firebaseConfig.database_url = FIREBASE_HOST;
-  firebaseConfig.signer.tokens.legacy_token = FIREBASE_AUTH;
+  setupFirebase(firebaseData, firebaseAuth, firebaseConfig, FIREBASE_HOST, FIREBASE_AUTH);
 
-  // Initialize Firebase
-  Firebase.begin(&firebaseConfig, &firebaseAuth);
-  Firebase.reconnectWiFi(true); // Automatically reconnect WiFi
+  // Setup micro (without wakeup word detection (turnoff))
+  initMicro();
 
-  // Setup speaker
   initSpeaker();
 
   // Setup micro (without wakeup word detection (turnoff))
   initMicro();
 
-  // Greet the user
+  // Setup micro (without wakeup word detection (turnoff))
+  initMicro();
+
   playSpeaker("Hi, I'm Wall-e! How can I help you?", "en");
   Serial.println("Wake word detected! Listening for command...");
   while (speakerIsPlaying())
@@ -78,7 +63,7 @@ void loop()
 {
   if (Firebase.ready())
   {
-    // Check light state:
+    // Check light state
     if (Firebase.getBool(firebaseData, "/light_001/isOn"))
     {
       bool lightState = firebaseData.boolData();
@@ -169,7 +154,7 @@ void loop()
       Serial.println(firebaseData.errorReason());
     }
 
-    // Check content speaker state:
+    // Check content speaker state
     if (Firebase.getBool(firebaseData, "/ask/ready"))
     {
       bool isReady = firebaseData.boolData();
