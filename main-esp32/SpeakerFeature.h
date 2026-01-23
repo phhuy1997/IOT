@@ -7,13 +7,12 @@
 extern Audio audio;
 
 void initSpeaker();
-String askAIModel(const String& Question);
-void esapeJSON(const String& s);
+String askAIModel(const String &Question);
 void speakerLoop();
 void playSound();
 bool speakerIsPlaying();
 
-void playSpeaker(const String& text, const char* lang);
-
+void playSpeaker(const String &text, const char *lang);
+void playLongSpeaker(const String &text, const char *lang);
 
 #endif

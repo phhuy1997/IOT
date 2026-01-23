@@ -1,4 +1,3 @@
-
 #include "Arduino.h"
 #include "WiFi.h"
 #include <HTTPClient.h>
@@ -20,7 +19,6 @@ const char *max_tokens = "300";
 #define I2S_PORT I2S_NUM_0
 
 Audio audio;
-bool gSpeakerPlaying = false;
 
 // #define SAMPLE_RATE 44100
 // #define TONE_FREQUENCY 440
@@ -47,32 +45,80 @@ void initSpeaker()
   audio.setVolume(18);
 }
 
+// Return true if speaker is playing
+bool speakerIsPlaying()
+{
+  return audio.isRunning();
+}
+
 void playSpeaker(const String &text, const char *lang)
 {
   audio.stopSong();
-  gSpeakerPlaying = true;
   audio.connecttospeech(text.c_str(), lang);
+}
+
+void speakerLoop()
+{
+  // Let the Audio library manage its own running state
+  audio.loop();
+}
+
+// New helper: play long text in multiple chunks so it won't be truncated
+void playLongSpeaker(const String &fullText, const char *lang)
+{
+  // Use smaller chunks to avoid TTS length limits
+  const int MAX_CHUNK_LEN = 80; // was 180
+
+  int start = 0;
+  int len = fullText.length();
+
+  while (start < len)
+  {
+    int end = start + MAX_CHUNK_LEN;
+    if (end > len)
+      end = len;
+
+    // Try to cut at a sentence boundary or space, not in the middle of a word
+    int bestEnd = -1;
+    for (int i = end - 1; i > start && i >= end - 50; --i)
+    {
+      char c = fullText[i];
+      if (c == '.' || c == '!' || c == '?' || c == ',' || c == ' ')
+      {
+        bestEnd = i + 1;
+        break;
+      }
+    }
+    if (bestEnd != -1)
+    {
+      end = bestEnd;
+    }
+
+    String chunk = fullText.substring(start, end);
+    chunk.trim();
+    if (chunk.length() > 0)
+    {
+      playSpeaker(chunk, lang);
+      while (speakerIsPlaying())
+      {
+        speakerLoop();
+        delay(10);
+      }
+    }
+
+    start = end;
+    // skip extra spaces between chunks
+    while (start < len && fullText[start] == ' ')
+    {
+      start++;
+    }
+  }
 }
 
 void playSound()
 {
   audio.stopSong();
   audio.connecttoFS(SD_MMC, "/wall-e.wav");
-}
-
-void speakerLoop()
-{
-  audio.loop(); // ✅ wrapped access
-  if (gSpeakerPlaying && !audio.isRunning())
-  { // <-- hypothetical isRunning()
-    gSpeakerPlaying = false;
-  }
-}
-
-// Return true if speaker is playing
-bool speakerIsPlaying()
-{
-  return gSpeakerPlaying;
 }
 
 String askAIModel(const String &Question)
@@ -162,7 +208,7 @@ String askAIModel(const String &Question)
       Serial.print("deserializeJson() failed: ");
       Serial.println(err2.c_str());
       https.end();
-      return "Có lỗi xảy ra 1";
+      return Content;
     }
 
     String Answer = doc2["answer"].as<String>();

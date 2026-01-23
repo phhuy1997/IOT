@@ -3,12 +3,25 @@
 
 #include "SpeakerFeature.h"
 #include "Voice.h"
-
-// Wifi
-const char *ssid = "FPT-Telecom-Huy";
-const char *password = "7210lecop";
+#include <FirebaseESP32.h>
 
 #define LED_PIN 14
+// Firebase
+// Provide the RTDB URL (IOT-ESP32-React-default-rtdb.asia-southeast1.firebasedatabase.app)
+#define FIREBASE_HOST "iot-esp32-react-default-rtdb.asia-southeast1.firebasedatabase.app"
+// Provide the Database Secret (found in Project settings -> Service accounts -> Database secrets)
+#define FIREBASE_AUTH "tBkK9z0DJKkQKdsK6iakfvo54gmuU7sRcSrjm1Ly" // <<< IMPORTANT: REPLACE WITH YOUR SECRET
+
+// Define Firebase Data objects
+FirebaseData firebaseData;
+FirebaseAuth firebaseAuth;
+FirebaseConfig firebaseConfig;
+
+// Wifi
+// const char* ssid = "Ks Newday";
+// const char* password = "0987424348";
+const char *ssid = "FPT-Telecom-Huy";
+const char *password = "7210lecop";
 
 // ===== WiFi Connection =====
 void connectWiFi()
@@ -28,25 +41,34 @@ void connectWiFi()
 void setup()
 {
   Serial.begin(115200);
-  while (!Serial)
-    delay(10);
 
   Serial.println("ESP32-S3 READY");
-
   pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH); // Ensure the light is off initially
 
+  // First prerequisites
   connectWiFi();
 
-  initSpeaker();
-  digitalWrite(LED_PIN, LOW);
+  // Firebase setup
+  // Assign the Firebase Realtime Database URL and secret
+  firebaseConfig.database_url = FIREBASE_HOST;
+  firebaseConfig.signer.tokens.legacy_token = FIREBASE_AUTH;
 
-  // Wait for wake word once at startup
-  Serial.println("\n[System] Waiting for wake word...");
-  initMicro(); // Initialize microphone and audio classifier machine learning
-  playSpeaker("Xin chào, tôi là robot Wall Lee đây!", "vi");
+  // Initialize Firebase
+  Firebase.begin(&firebaseConfig, &firebaseAuth);
+  Firebase.reconnectWiFi(true); // Automatically reconnect WiFi
+
+  // Setup speaker
+  initSpeaker();
+
+  // Setup micro (without wakeup word detection (turnoff))
+  initMicro();
+
+  // Greet the user
+  playSpeaker("Hi, I'm Wall-e! How can I help you?", "en");
   Serial.println("Wake word detected! Listening for command...");
   while (speakerIsPlaying())
-  { // wait until greeting finishes
+  {
     speakerLoop();
     delay(10);
   }
@@ -54,57 +76,141 @@ void setup()
 
 void loop()
 {
-  // 3. Via method Waiting for wake word above
-  speakerLoop();
-  while (speakerIsPlaying())
-  { // wait until greeting finishes
-    speakerLoop();
-    delay(10);
-  }
-  playSpeaker("Iva?", "en");
-  while (speakerIsPlaying())
-  { // wait until greeting finishes
-    speakerLoop();
-    delay(10);
-  }
-  String text = recordingMicro();
-  playSpeaker("Hmmm", "en");
-  while (speakerIsPlaying())
-  { // wait until greeting finishes
-    speakerLoop();
-    delay(10);
-  }
-  text.trim();
-  text.toLowerCase();
-  Serial.print("User asked: ");
-  Serial.println(text);
-  if (text.length() > 0)
+  if (Firebase.ready())
   {
-    // Get the AI Answer
-    if (text.indexOf("tạm biệt") >= 0)
+    // Check light state:
+    if (Firebase.getBool(firebaseData, "/light_001/isOn"))
     {
-      Serial.println("Shutting down...");
-      playSpeaker("Tạm biệt! Hẹn gặp lại! Hãy gọi lại tôi khi cần nhé!", "vi");
-      while (speakerIsPlaying())
-      {
-        speakerLoop();
-        delay(10);
-      }
-      ESP.restart(); // or put ESP32 into deep sleep
+      bool lightState = firebaseData.boolData();
+      digitalWrite(LED_PIN, lightState ? LOW : HIGH);
+      Serial.printf("Light 1: ");
+      Serial.println(lightState);
+    }
+    else
+    {
+      Serial.printf("Error Light 1: ");
+      Serial.println(firebaseData.errorReason());
     }
 
-    // Otherwise, process AI command
-    String answer = askAIModel(text);
-    Serial.print("AI Answer: ");
-    Serial.println(answer);
-    // Start the speech
-    Serial.flush(); // Wait until all Serial prints finish
-    delay(50);      // give DAC/I2S time to prepare
-    playSpeaker(answer.c_str(), "vi");
-    while (speakerIsPlaying())
-    {                // wait until playback finishes
-      speakerLoop(); // keep processing speaker buffer
-      delay(10);
+    // Check micro ready state:
+    if (Firebase.getBool(firebaseData, "/micro/ready"))
+    {
+      bool isReady = firebaseData.boolData();
+      if (isReady == true)
+      {
+        for (int i = 0; i < 5; i++)
+        {
+          playSpeaker("Iva?", "en");
+          while (speakerIsPlaying())
+          { // wait until greeting finishes
+            speakerLoop();
+            delay(10);
+          }
+          String text = recordingMicro();
+          playSpeaker("Hmmm", "en");
+          while (speakerIsPlaying())
+          { // wait until greeting finishes
+            speakerLoop();
+            delay(10);
+          }
+          text.trim();
+          text.toLowerCase();
+          Serial.print("User asked: ");
+          Serial.println(text);
+          if (text.length() > 0)
+          {
+            // Get the AI Answer
+            if (text.indexOf("tạm biệt") >= 0)
+            {
+              Serial.println("Shutting down...");
+              playSpeaker("Tạm biệt! Hẹn gặp lại! Hãy gọi lại tôi khi cần nhé!", "vi");
+              while (speakerIsPlaying())
+              {
+                speakerLoop();
+                delay(10);
+              }
+              // Stop the 5-loop early if user says goodbye
+              break;
+            }
+            else
+            {
+              // Otherwise, process AI command
+              String answer = askAIModel(text);
+              Serial.print("AI Answer: ");
+              Serial.println(answer);
+              // Start the speech
+              Serial.flush(); // Wait until all Serial prints finish
+              delay(50);      // give DAC/I2S time to prepare
+              playLongSpeaker(answer.c_str(), "vi");
+              while (speakerIsPlaying())
+              {                // wait until playback finishes
+                speakerLoop(); // keep processing speaker buffer
+                delay(10);
+              }
+            }
+          }
+        }
+
+        // Speaker from Micro loop (5 times) finished → reset flag
+        if (!Firebase.setBool(firebaseData, "/micro/ready", false))
+        {
+          Serial.print("Failed to reset micro/ready: ");
+          Serial.println(firebaseData.errorReason());
+        }
+        else
+        {
+          Serial.println("micro/ready reset to false");
+        }
+      }
     }
+    else
+    {
+      Serial.printf("Error Micro ready check: ");
+      Serial.println(firebaseData.errorReason());
+    }
+
+    // Check content speaker state:
+    if (Firebase.getBool(firebaseData, "/ask/ready"))
+    {
+      bool isReady = firebaseData.boolData();
+      if (isReady == true)
+      {
+        if (Firebase.getString(firebaseData, "/ask/content"))
+        {
+          String text = firebaseData.stringData();
+          String answer = askAIModel(text);
+          Serial.print("AI Answer: ");
+          Serial.println(answer);
+          // Start the speech
+          Serial.flush(); // Wait until all Serial prints finish
+          delay(50);      // give DAC/I2S time to prepare
+          playLongSpeaker(answer.c_str(), "vi");
+          while (speakerIsPlaying())
+          {                // wait until playback finishes
+            speakerLoop(); // keep processing speaker buffer
+            delay(10);
+          }
+          // Speaker finished → reset flag
+          if (!Firebase.setBool(firebaseData, "/ask/ready", false))
+          {
+            Serial.print("Failed to reset ask/ready: ");
+            Serial.println(firebaseData.errorReason());
+          }
+          else
+          {
+            Serial.println("ask/ready reset to false");
+          }
+        }
+      }
+    }
+    else
+    {
+      Serial.printf("Error Ask Ready: ");
+      Serial.println(firebaseData.errorReason());
+    }
+  }
+  else
+  {
+    Serial.printf("Firebase not ready");
   }
 }

@@ -519,7 +519,7 @@ void initMicro()
         ei_printf("ERR: Could not allocate audio buffer (size %d), this could be due to the window length of your model\r\n", EI_CLASSIFIER_RAW_SAMPLE_COUNT);
         return;
     }
-    wakeupLoop();
+    // wakeupLoop(); // PHN disabled wake word for no need to waiting for listening Machine learning to be wake and break the loop
     Serial.println("\n\n[System] Micro ready");
     delay(2000);
 }
