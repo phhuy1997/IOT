@@ -15,4 +15,7 @@ bool speakerIsPlaying();
 void playSpeaker(const String &text, const char *lang);
 void playLongSpeaker(const String &text, const char *lang);
 
+// Play a WAV file from the SD card
+void playWavFile(const uint8_t *data, size_t length);
+
 #endif

@@ -6,6 +6,7 @@
 #include "WiFiHelper.h"
 #include "FirebaseHelper.h"
 #include <FirebaseESP32.h>
+#include "wall-e.h"
 
 #define LED_PIN 14
 // Firebase
@@ -39,13 +40,11 @@ void setup()
   // Firebase setup
   setupFirebase(firebaseData, firebaseAuth, firebaseConfig, FIREBASE_HOST, FIREBASE_AUTH);
 
-  // Setup micro (without wakeup word detection (turnoff))
-  initMicro();
+  const uint8_t *wall_e_wav = (const uint8_t *)samples;
+  const size_t wall_e_wav_len = sampleCount;
 
-  initSpeaker();
-
-  // Setup micro (without wakeup word detection (turnoff))
-  initMicro();
+  // Play the embedded WAV file,
+  playWavFile(wall_e_wav, wall_e_wav_len); // No need to initSpeaker() because it already called inside playWavFile() when play done
 
   // Setup micro (without wakeup word detection (turnoff))
   initMicro();

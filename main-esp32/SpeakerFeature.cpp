@@ -6,6 +6,7 @@
 #include <ArduinoJson.h>
 
 #include "Audio.h"
+#include "driver/i2s_std.h"
 
 const char *perplexity_token = "xxxx";
 const char *temperature = "0.2";
@@ -16,7 +17,7 @@ const char *max_tokens = "300";
 #define I2S_BCLK 5
 #define I2S_DOUT 4
 
-#define I2S_PORT I2S_NUM_0
+#define I2S_PORT I2S_NUM_1
 
 Audio audio;
 
@@ -230,4 +231,118 @@ String askAIModel(const String &Question)
     https.end();
     return "Có lỗi xảy ra 3";
   }
+}
+
+// FOR PLAY WAV FILE FEATURE:
+// Global handle for temporary raw PCM TX channel (new I2S driver)
+static i2s_chan_handle_t tx_raw_pcm_chan = nullptr;
+
+// Initialise I2S for raw PCM playback using
+// BCLK (I2S_BCLK), LRC/WS (I2S_LRC) and DIN (I2S_DOUT).
+// The amplifier's GAIN and SD pins are not handled by I2S
+// and should be wired to fixed levels or separate GPIOs.
+bool init_raw_pcm_i2s(uint32_t sampleRate)
+{
+  // Configure a TX-only standard I2S channel using the new driver
+  i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_PORT, I2S_ROLE_MASTER);
+
+  esp_err_t err = i2s_new_channel(&chan_cfg, &tx_raw_pcm_chan, NULL);
+  if (err != ESP_OK)
+  {
+    Serial.printf("[I2S-RAW] Failed to create I2S channel: %d\n", (int)err);
+    tx_raw_pcm_chan = nullptr;
+    return false;
+  }
+
+  i2s_std_config_t std_cfg = {
+      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sampleRate),
+      .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+      .gpio_cfg =
+          {
+              .mclk = I2S_GPIO_UNUSED,
+              .bclk = GPIO_NUM_5,
+              .ws = GPIO_NUM_16,
+              .dout = GPIO_NUM_4,
+              .din = I2S_GPIO_UNUSED,
+              .invert_flags =
+                  {
+                      .mclk_inv = false,
+                      .bclk_inv = false,
+                      .ws_inv = false,
+                  },
+          },
+  };
+
+  err = i2s_channel_init_std_mode(tx_raw_pcm_chan, &std_cfg);
+  if (err != ESP_OK)
+  {
+    Serial.printf("[I2S-RAW] Failed to init std mode: %d\n", (int)err);
+    i2s_del_channel(tx_raw_pcm_chan);
+    tx_raw_pcm_chan = nullptr;
+    return false;
+  }
+
+  err = i2s_channel_enable(tx_raw_pcm_chan);
+  if (err != ESP_OK)
+  {
+    Serial.printf("[I2S-RAW] Failed to enable channel: %d\n", (int)err);
+    i2s_del_channel(tx_raw_pcm_chan);
+    tx_raw_pcm_chan = nullptr;
+    return false;
+  }
+
+  return true;
+}
+
+// Function to play an embedded WAV/PCM buffer
+void playWavFile(const uint8_t *data, size_t length)
+{
+  uint32_t sampleRate = 48000;
+
+  if (!init_raw_pcm_i2s(sampleRate))
+  {
+    return;
+  }
+
+  int16_t buffer[512];
+  size_t index = 0;
+
+  while (index < length)
+  {
+    size_t remaining = length - index;
+    size_t n_samples = (remaining > sizeof(buffer) / sizeof(buffer[0])) ? sizeof(buffer) / sizeof(buffer[0]) : remaining;
+
+    // Cast the uint8_t pointer to signed char pointer
+    const signed char *signed_data = (const signed char *)data;
+
+    for (size_t i = 0; i < n_samples; ++i)
+    {
+      signed char v = signed_data[index + i]; // Already signed (-128 to +127)
+      int16_t sample = (int16_t)v << 8;       // Scale to 16-bit: -32768 to +32512
+      sample /= 5;                            // 20% volume
+      buffer[i] = sample;
+    }
+
+    size_t bytes_to_write = n_samples * sizeof(int16_t);
+    size_t bytes_written = 0;
+    esp_err_t err = i2s_channel_write(tx_raw_pcm_chan, buffer, bytes_to_write, &bytes_written, pdMS_TO_TICKS(1000));
+    if (err != ESP_OK)
+    {
+      Serial.printf("[I2S-RAW] i2s_channel_write failed: %d\n", (int)err);
+      break;
+    }
+
+    index += n_samples;
+  }
+
+  delay(10);
+
+  if (tx_raw_pcm_chan != nullptr)
+  {
+    i2s_channel_disable(tx_raw_pcm_chan);
+    i2s_del_channel(tx_raw_pcm_chan);
+    tx_raw_pcm_chan = nullptr;
+  }
+
+  initSpeaker();
 }
